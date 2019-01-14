@@ -32,6 +32,7 @@ var PhenoTips = (function (PhenoTips) {
         this.paginator = new PhenoTips.widgets.MatcherPaginator(this, this.pagination, this._maxResults);
 
         this._isAdmin = $('isAdmin');
+        this._currentUserId = $('currentUserId') && $('currentUserId').value || '';
         this._presentServerIds = [];
 
         this._utils = new utils(this._tableElement);
@@ -660,6 +661,16 @@ var PhenoTips = (function (PhenoTips) {
 
             // sort notification records between those who were sent to reference and to matched patient owners
             match.notificationHistory && this._organiseNotificationHistory(match);
+
+            // parse comments if any
+            if (match.comments) {
+                try {
+                    var records = JSON.parse(match.comments);
+                    match.comments = records.comments;
+                } catch(e) {
+                    console.log("Syntax error parsing match.comments for match ID: "+ match.id +" comments JSON string: "+ match.comments);
+                }
+            }
         }.bind(this));
 
         // leave only uniq server ids in the array, remove duplicates
@@ -888,10 +899,15 @@ var PhenoTips = (function (PhenoTips) {
             + '<option value="saved" '+ (match.status == "saved" ? ' selected="selected"' : '') + '>' + this._SAVED + '</option>'
             + '<option value="rejected" '+ (match.status == "rejected" ? ' selected="selected"' : '') + '>' + this._REJECTED + '</option>'
             + '</select>';
-        var icon = (match.comment && match.comment != "") ? "fa fa-comment" : "fa fa-comment-o";
+        var icon = (match.comments) ? "fa fa-comments" : "fa fa-comments-o";
         td += '<span class="buttonwrapper" title="' + this._ADD_COMMENT_TITLE + '"><a class="button comment" href="#"><span class="' + icon + '"> </span></a></span>';
-        td += '<div class="xTooltip comment-container"><span class="hide-tool" title="Hide">×</span><div><textarea rows="5" cols="20"></textarea></div>'
-            +'<span class="buttonwrapper"><a class="button save-comment" data-matchid="' + match.id + '" href="#"><span class="fa fa-save"> </span>'
+        var commentsTable = '';
+        if (match.comments) {
+            commentsTable = this._generateCommentsTable(match.comments);
+        }
+        td += '<div class="xTooltip comment-container"><span class="hide-tool" title="Hide">×</span><div><textarea rows="5" cols="20"></textarea></div>';
+        td += commentsTable;
+        td +='<span class="buttonwrapper"><a class="button save-comment" data-matchid="' + match.id + '" href="#"><span class="fa fa-save"> </span>'
             + this._SAVE_COMMENT_BUTTON_LABEL + '</a></span></div>';
         // notes icon
         var icon = (match.notes) ? "fa fa-file" : "fa fa-file-o";
@@ -902,6 +918,60 @@ var PhenoTips = (function (PhenoTips) {
             + this._NOTES_SAVE + '</a></span></div>';
         td += '</td>';
         return td;
+    },
+
+    _getUserComment : function(records) {
+        for (var i=0; i < records.length; i++) {
+            if (records[i].userinfo && records[i].userinfo.id && this._currentUserId == records[i].userinfo.id) {
+                return records[i].comment;
+            }
+        }
+        return null;
+    },
+
+    _generateCommentsTable : function(records)
+    {
+        var tableBody = '';
+
+        for (var i=0; i < records.length; i++) {
+            var record = records[i];
+
+            // if no comment text or comment made by current user, continue to next comment record
+            if (!record.comment || record.userinfo && record.userinfo.id && this._currentUserId == record.userinfo.id) {
+                continue;
+            }
+            var row = '<tr>';
+            var date = '<td>';
+            date += '<div class="date">' + record.date + '</div>';
+            if (record.userinfo && record.userinfo.name) {
+                date += '<span>'+ record.userinfo.name + '"</span>';
+            }
+            date += '</td>';
+
+            var comment = '<td>';
+            if (record.comment) {
+                if (!record.userinfo || record.userinfo.id && this._currentUserId != record.userinfo.id) {
+                    comment += record.comment;
+                }
+            }
+            comment += '</td>';
+
+            row += date;
+            row += comment;
+            row += '</tr>';
+
+            tableBody += row;
+        }
+
+        if (!tableBody) {
+            return '';
+        }
+
+        var table = '<table class="comments-table"><tbody>';
+        table += tableBody;
+        table += '</tbody></table>';
+
+        return table;
     },
 
     _simpleCellWriter : function(value)
@@ -1362,20 +1432,20 @@ var PhenoTips = (function (PhenoTips) {
 
             var hideTool = elm.up('td').down('.comment-container .hide-tool');
             hideTool.on('click', function(event) {
-                elm.down('span').className = (textarea.value != "") ? "fa fa-comment" : "fa fa-comment-o";
+                elm.down('span').className = (textarea.value) ? "fa fa-comments" : "fa fa-comments-o";
                 comment_container.addClassName('hidden');
             });
 
             var saveButton = elm.up('td').down('.save-comment');
             saveButton.on('click', function(event) {
                 event.stop();
-                elm.down('span').className = (textarea.value != "") ? "fa fa-comment" : "fa fa-comment-o";
+                elm.down('span').className = (textarea.value) ? "fa fa-comments" : "fa fa-comments-o";
                 comment_container.addClassName('hidden');
                 this._saveComment(event);
             }.bind(this));
 
             var commentMatch = this._matches.filter(function(match) { return String(match.id) === saveButton.dataset.matchid; });
-            textarea.value = (commentMatch && commentMatch[0] && commentMatch[0].comment) ? commentMatch[0].comment : '';
+            textarea.value = (commentMatch && commentMatch[0] && commentMatch[0].comments) ? this._getUserComment(commentMatch[0].comments) : '';
         }.bind(this));
     },
 
